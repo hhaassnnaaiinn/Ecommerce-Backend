@@ -13,6 +13,7 @@ const productRoutes = require('./routes/product.routes');
 const orderRoutes = require('./routes/order.routes');
 const cartRoutes = require('./routes/cart.routes');
 const profileRoutes = require('./routes/profile.routes');
+const paymentRoutes = require('./routes/payment.routes');
 
 const app = express();
 
@@ -20,6 +21,11 @@ const app = express();
 app.use(helmet());
 app.use(cors());
 app.use(morgan('dev'));
+
+// Special handling for Stripe webhooks
+app.use('/api/payments/webhook', express.raw({ type: 'application/json' }));
+
+// Regular middleware for other routes
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -29,6 +35,7 @@ app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/payments', paymentRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

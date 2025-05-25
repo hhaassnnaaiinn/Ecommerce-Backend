@@ -5,6 +5,7 @@ const { Cart, CartItem } = require('../models/cart.model');
 const Product = require('../models/product.model');
 const { auth, adminAuth } = require('../middleware/auth.middleware');
 const sequelize = require('../config/database');
+const { Payment } = require('../models/payment.model');
 
 const router = express.Router();
 
@@ -174,20 +175,43 @@ router.patch('/:id/payment', [
   body('paymentStatus').isIn(['pending', 'paid', 'failed'])
     .withMessage('Invalid payment status')
 ], async (req, res) => {
+  const transaction = await sequelize.transaction();
+
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const order = await Order.findByPk(req.params.id);
+    const order = await Order.findByPk(req.params.id, {
+      include: [{
+        model: Payment,
+        where: {
+          paymentMethod: 'card'
+        },
+        required: false
+      }],
+      transaction
+    });
+
     if (!order) {
+      await transaction.rollback();
       return res.status(404).json({ error: 'Order not found' });
     }
 
-    await order.update({ paymentStatus: req.body.paymentStatus });
+    // Prevent manual payment status updates for Stripe payments
+    if (order.Payments && order.Payments.length > 0) {
+      await transaction.rollback();
+      return res.status(400).json({ 
+        error: 'Cannot manually update payment status for orders with Stripe payments. Use the payment system instead.' 
+      });
+    }
+
+    await order.update({ paymentStatus: req.body.paymentStatus }, { transaction });
+    await transaction.commit();
     res.json(order);
   } catch (error) {
+    await transaction.rollback();
     res.status(500).json({ error: 'Error updating payment status' });
   }
 });

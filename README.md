@@ -40,6 +40,10 @@ backend/
    DB_USER=your_username
    DB_PASSWORD=your_password
    JWT_SECRET=your_jwt_secret
+   # Stripe Configuration
+   STRIPE_SECRET_KEY=your_stripe_secret_key
+   STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret
+   STRIPE_PUBLISHABLE_KEY=your_stripe_publishable_key
    ```
 4. Start the development server:
    ```bash
