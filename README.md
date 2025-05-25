@@ -16,7 +16,7 @@ A scalable e-commerce backend API built with Node.js, Express, and PostgreSQL.
 backend/
 ├── src/
 │   ├── config/         # Configuration files
-        ├── database.js
+|   |   ├── database.js
 │   ├── middleware/     # Custom middleware
 │   ├── models/         # Database models
 │   ├── routes/         # API routes
