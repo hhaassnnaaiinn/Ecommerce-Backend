@@ -1,6 +1,7 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { Order, OrderItem } = require('../models/order.model');
+const { Cart, CartItem } = require('../models/cart.model');
 const Product = require('../models/product.model');
 const { auth, adminAuth } = require('../middleware/auth.middleware');
 const sequelize = require('../config/database');
@@ -188,6 +189,103 @@ router.patch('/:id/payment', [
     res.json(order);
   } catch (error) {
     res.status(500).json({ error: 'Error updating payment status' });
+  }
+});
+
+// Convert cart to order
+router.post('/from-cart', [
+  auth,
+  body('shippingAddress').isObject().withMessage('Shipping address is required'),
+  body('shippingAddress.street').notEmpty().withMessage('Street is required'),
+  body('shippingAddress.city').notEmpty().withMessage('City is required'),
+  body('shippingAddress.state').notEmpty().withMessage('State is required'),
+  body('shippingAddress.zipCode').notEmpty().withMessage('Zip code is required')
+], async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { shippingAddress } = req.body;
+
+    // Get user's active cart
+    const cart = await Cart.findOne({
+      where: {
+        userId: req.user.id,
+        status: 'active'
+      },
+      include: [{
+        model: CartItem,
+        include: [Product]
+      }],
+      transaction
+    });
+
+    if (!cart) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Cart not found' });
+    }
+
+    if (cart.CartItems.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Cart is empty' });
+    }
+
+    // Validate stock for all items
+    for (const item of cart.CartItems) {
+      if (item.Product.stock < item.quantity) {
+        await transaction.rollback();
+        return res.status(400).json({ 
+          error: `Insufficient stock for product ${item.Product.name}` 
+        });
+      }
+    }
+
+    // Create order
+    const order = await Order.create({
+      userId: req.user.id,
+      totalAmount: cart.totalAmount,
+      shippingAddress,
+      status: 'pending',
+      paymentStatus: 'pending'
+    }, { transaction });
+
+    // Create order items and update product stock
+    await Promise.all(cart.CartItems.map(async (cartItem) => {
+      // Create order item
+      await OrderItem.create({
+        orderId: order.id,
+        productId: cartItem.productId,
+        quantity: cartItem.quantity,
+        price: cartItem.price
+      }, { transaction });
+
+      // Update product stock
+      await cartItem.Product.update({
+        stock: cartItem.Product.stock - cartItem.quantity
+      }, { transaction });
+    }));
+
+    // Update cart status
+    await cart.update({ status: 'converted' }, { transaction });
+
+    await transaction.commit();
+
+    // Fetch complete order with items
+    const completeOrder = await Order.findByPk(order.id, {
+      include: [{
+        model: OrderItem,
+        include: [Product]
+      }]
+    });
+
+    res.status(201).json(completeOrder);
+  } catch (error) {
+    await transaction.rollback();
+    res.status(500).json({ error: 'Error creating order from cart' });
   }
 });
 
